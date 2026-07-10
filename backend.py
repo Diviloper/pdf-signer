@@ -161,9 +161,17 @@ def _clamp_rect_to_page(rect: fitz.Rect, page_rect: fitz.Rect) -> fitz.Rect:
 # Fixed template size in PDF points: kept constant regardless of text content
 # so a stamp placement chosen on the preview (from this same template) still
 # lines up with the image actually generated at signing time.
-TEXT_STAMP_WIDTH_PT = 240.0
-TEXT_STAMP_HEIGHT_PT = 64.0
+TEXT_STAMP_WIDTH_PT = 260.0
+TEXT_STAMP_HEIGHT_PT = 76.0
 TEXT_STAMP_ZOOM = 4.0
+# Fraction of the card's shorter side (draw_rect's radius is relative, not in
+# points) -- picked to read like a ~20px CSS border-radius at this card size.
+TEXT_STAMP_CORNER_RADIUS = 0.26
+
+_STAMP_BORDER_COLOR = (0.145, 0.388, 0.922)  # accent blue
+_STAMP_FILL_COLOR = (1, 1, 1)  # white card, so text stays legible on any page
+_STAMP_NAME_COLOR = (0.118, 0.161, 0.231)  # dark slate
+_STAMP_TIME_COLOR = (0.392, 0.455, 0.545)  # muted gray
 
 
 def generate_text_stamp_image(
@@ -173,29 +181,65 @@ def generate_text_stamp_image(
     height_pt: float = TEXT_STAMP_HEIGHT_PT,
     zoom: float = TEXT_STAMP_ZOOM,
 ) -> bytes:
-    """Render a "Signed by <name>" + timestamp stamp into a PNG, returned
-    as raw bytes. The image's pixel size is always ``(width_pt, height_pt)
-    * zoom``, independent of the text, so it can stand in for a
-    user-picked image file anywhere in the pipeline."""
+    """Render a rounded-corner "signed by" badge showing the signer's name
+    and the signing time, as a PNG with a transparent background outside
+    the rounded border (so it isn't a stark white rectangle on the page).
+    The image's pixel size is always ``(width_pt, height_pt) * zoom``,
+    independent of the text, so it can stand in for a user-picked image
+    file anywhere in the pipeline."""
     if not name.strip():
         raise PdfSignerError("Signer name is required to generate a stamp image.")
-
-    text = f"Signed by: {name.strip()}\n{timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
 
     doc = fitz.open()
     try:
         page = doc.new_page(width=width_pt, height=height_pt)
-        rect = fitz.Rect(4, 4, width_pt - 4, height_pt - 4)
-        for fontsize in (14, 12, 10, 8, 6):
+
+        pad = 4
+        card_rect = fitz.Rect(pad, pad, width_pt - pad, height_pt - pad)
+        page.draw_rect(
+            card_rect,
+            color=_STAMP_BORDER_COLOR,
+            fill=_STAMP_FILL_COLOR,
+            width=2,
+            radius=TEXT_STAMP_CORNER_RADIUS,
+        )
+
+        inner_pad = 10
+        name_rect = fitz.Rect(
+            card_rect.x0 + inner_pad,
+            card_rect.y0 + 8,
+            card_rect.x1 - inner_pad,
+            card_rect.y0 + card_rect.height * 0.6,
+        )
+        time_rect = fitz.Rect(
+            card_rect.x0 + inner_pad,
+            card_rect.y0 + card_rect.height * 0.6,
+            card_rect.x1 - inner_pad,
+            card_rect.y1 - 6,
+        )
+
+        for fontsize in (15, 13, 11, 9, 7):
             overflow = page.insert_textbox(
-                rect,
-                text,
+                name_rect,
+                name.strip(),
                 fontsize=fontsize,
+                fontname="hebo",
+                color=_STAMP_NAME_COLOR,
                 align=fitz.TEXT_ALIGN_CENTER,
             )
             if overflow >= 0:
                 break
-        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+
+        page.insert_textbox(
+            time_rect,
+            timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            fontsize=10,
+            fontname="helv",
+            color=_STAMP_TIME_COLOR,
+            align=fitz.TEXT_ALIGN_CENTER,
+        )
+
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=True)
         return pix.tobytes("png")
     finally:
         doc.close()

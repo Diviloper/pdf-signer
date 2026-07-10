@@ -49,6 +49,7 @@ IMAGES_DIR = Path(__file__).resolve().parent / "images"
 LOGO_SVG_PATH = IMAGES_DIR / "algorae-logo.svg"
 LOGO_PNG_PATH = IMAGES_DIR / "diviloper.png"
 DIVILOPER_URL = "https://github.com/Diviloper"
+ISSUES_URL = "https://github.com/Diviloper/pdf-signer/issues"
 
 
 class ClickableLabel(QLabel):
@@ -338,6 +339,13 @@ class MainWindow(QMainWindow):
         self._status_log.setReadOnly(True)
         layout.addWidget(self._status_log, stretch=1)
 
+        self._bug_report_label = ClickableLabel()
+        self._bug_report_label.setText("🐛")
+        bug_font = self._bug_report_label.font()
+        bug_font.setPointSize(bug_font.pointSize() + 6)
+        self._bug_report_label.setFont(bug_font)
+        self._bug_report_label.clicked.connect(self._on_bug_report_clicked)
+
         self._logo_label = ClickableLabel()
         self._logo_label.setToolTip(DIVILOPER_URL)
         self._logo_label.clicked.connect(self._on_logo_clicked)
@@ -357,7 +365,17 @@ class MainWindow(QMainWindow):
                 scaled.setDevicePixelRatio(dpr)
                 self._logo_label.setPixmap(scaled)
         self._logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._logo_label)
+
+        footer_row = QHBoxLayout()
+        footer_row.setSpacing(0)
+        footer_row.addWidget(self._bug_report_label)
+        footer_row.addStretch(1)
+        footer_row.addWidget(self._logo_label)
+        footer_row.addStretch(1)
+        # Mirror the bug icon's width on the right so the two stretches
+        # above are symmetric and the logo lands exactly centered.
+        footer_row.addSpacing(self._bug_report_label.sizeHint().width())
+        layout.addLayout(footer_row)
 
         self._on_stamp_mode_changed()  # sync widget enabled-state with the default mode
 
@@ -404,6 +422,7 @@ class MainWindow(QMainWindow):
         self._run_btn.setText(self._t("run_btn"))
         self._status_label.setText(self._t("status_label"))
         self._canvas_hint_label.setText(self._t("canvas_hint"))
+        self._bug_report_label.setToolTip(self._t("bug_report_tooltip"))
         for key, label in self._section_labels.items():
             label.setText(self._t(key))
 
@@ -415,6 +434,9 @@ class MainWindow(QMainWindow):
 
     def _on_logo_clicked(self) -> None:
         QDesktopServices.openUrl(QUrl(DIVILOPER_URL))
+
+    def _on_bug_report_clicked(self) -> None:
+        QDesktopServices.openUrl(QUrl(ISSUES_URL))
 
     def _on_pick_pdfs(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
