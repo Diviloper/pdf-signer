@@ -18,17 +18,17 @@ Sense Python, sense configuració.
    ("Windows ha protegit el vostre ordinador") perquè l'exe no està signat
    amb codi; fes clic a **Més informació → Executa igualment**.
 3. A l'aplicació:
-   1. **1. Fitxers PDF / PDF Files** — fes clic a **Add PDF Files...** i tria
+   1. **1. Fitxers PDFs** — fes clic a **Afegeix fitxers PDF...** i tria
       un o més PDFs per signar.
-   2. **2. Certificat / Certificate** — tria el teu certificat de signatura del
+   2. **2. Certificat** — tria el teu certificat de signatura del
       desplegable (obtingut del magatzem de certificats de Windows). Si té
       un nom/NIF, aquest nom s'omple automàticament a sota.
-   3. **3. Segell / Stamp** — deixa que generi automàticament un segell a partir
+   3. **3. Segell** — deixa que generi automàticament un segell a partir
       del nom del signant, o tria el teu propi fitxer d'imatge. Fes clic a la
       previsualització de la pàgina per triar on va el segell.
-   4. **4. Sortida / Output** — tria la carpeta de sortida (per defecte, la
+   4. **4. Sortida** — tria la carpeta de sortida (per defecte, la
       carpeta del primer PDF que has afegit).
-   5. **5. Executar / Run** — fes clic a **Apply Stamp & Sign**. Si la clau
+   5. **5. Executar** — fes clic a **Aplica segell i signa**. Si la clau
       privada del certificat necessita un PIN, Windows el demanarà.
 4. En acabar, un missatge emergent et permet signar més documents, obrir els
    fitxers signats, obrir la carpeta de sortida o tancar l'aplicació.
@@ -80,17 +80,17 @@ No Python, no setup.
    ("Windows protected your PC") since the exe isn't code-signed; click
    **More info → Run anyway**.
 3. In the app:
-   1. **1. Fitxers PDF / PDF Files** — click **Add PDF Files...** and pick
+   1. **1. PDF Files** — click **Add PDF Files...** and pick
       one or more PDFs to sign.
-   2. **2. Certificat / Certificate** — pick your signing certificate from
+   2. **2. Certificate** — pick your signing certificate from
       the dropdown (pulled from your Windows certificate store). If it has
       a name/NIF, that name is auto-filled below.
-   3. **3. Segell / Stamp** — either let it auto-generate a stamp from the
+   3. **3. Stamp** — either let it auto-generate a stamp from the
       signer name, or pick your own image file. Click on the page preview
       to choose where the stamp goes.
-   4. **4. Sortida / Output** — pick the output folder (defaults to the
+   4. **4. Output** — pick the output folder (defaults to the
       folder of the first PDF you added).
-   5. **5. Executar / Run** — click **Apply Stamp & Sign**. If the
+   5. **5. Run** — click **Apply Stamp & Sign**. If the
       certificate's private key needs a PIN, Windows will prompt for it.
 4. When done, a popup lets you sign more documents, open the signed files,
    open the output folder, or close the app.
