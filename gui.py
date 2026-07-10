@@ -81,6 +81,7 @@ class PreviewCanvas(QLabel):
         self._base_pixmap: Optional[QPixmap] = None
         self._box_size_px: Optional[tuple[float, float]] = None
         self._click_pos: Optional[tuple[float, float]] = None
+        self._stamp_preview_pixmap: Optional[QPixmap] = None
 
     def set_page_pixmap(
         self, pixmap: QPixmap, click_pos: Optional[tuple[float, float]] = None
@@ -94,10 +95,15 @@ class PreviewCanvas(QLabel):
         self._box_size_px = (width_px, height_px)
         self._redraw()
 
+    def set_stamp_preview_image(self, pixmap: Optional[QPixmap]) -> None:
+        self._stamp_preview_pixmap = pixmap
+        self._redraw()
+
     def clear_page(self) -> None:
         self._base_pixmap = None
         self._click_pos = None
         self._box_size_px = None
+        self._stamp_preview_pixmap = None
         self.clear()
 
     def _pixmap_rect(self) -> Optional[tuple[float, float, int, int]]:
@@ -133,14 +139,23 @@ class PreviewCanvas(QLabel):
         composed = QPixmap(self._base_pixmap)
         if self._click_pos and self._box_size_px:
             painter = QPainter(composed)
-            pen = QPen(Qt.GlobalColor.red)
-            pen.setWidth(2)
-            painter.setPen(pen)
             x, y = self._click_pos
             w, h = self._box_size_px
             x = min(max(x, 0), composed.width() - w)
             y = min(max(y, 0), composed.height() - h)
-            painter.drawRect(int(x), int(y), int(w), int(h))
+            if self._stamp_preview_pixmap and not self._stamp_preview_pixmap.isNull():
+                scaled = self._stamp_preview_pixmap.scaled(
+                    max(int(w), 1),
+                    max(int(h), 1),
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                painter.drawPixmap(int(x), int(y), scaled)
+            else:
+                pen = QPen(Qt.GlobalColor.red)
+                pen.setWidth(2)
+                painter.setPen(pen)
+                painter.drawRect(int(x), int(y), int(w), int(h))
             painter.end()
         self.setPixmap(composed)
 
@@ -298,6 +313,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._mode_file_radio)
 
         self._signer_name_edit = QLineEdit()
+        self._signer_name_edit.textChanged.connect(self._refresh_stamp_preview_image)
         layout.addWidget(self._signer_name_edit)
 
         self._pick_stamp_btn = QPushButton()
@@ -431,6 +447,7 @@ class MainWindow(QMainWindow):
     def _on_language_changed(self) -> None:
         self._lang = self._language_combo.currentData()
         self._retranslate_ui()
+        self._refresh_stamp_preview_image()
 
     def _on_logo_clicked(self) -> None:
         QDesktopServices.openUrl(QUrl(DIVILOPER_URL))
@@ -559,7 +576,11 @@ class MainWindow(QMainWindow):
         if self._is_auto_mode():
             stamp_image_path = Path(tempfile.gettempdir()) / "pdf_signer_generated_stamp.png"
             backend.write_text_stamp_image(
-                stamp_image_path, self._signer_name_edit.text(), datetime.now()
+                stamp_image_path,
+                self._signer_name_edit.text(),
+                datetime.now(),
+                signed_by_label=self._t("stamp_signed_by_label"),
+                timestamp_label=self._t("stamp_timestamp_label"),
             )
             self._generated_stamp_temp_path = stamp_image_path
 
@@ -635,6 +656,35 @@ class MainWindow(QMainWindow):
         stamp_width_canvas_px = stamp_width_pt / (pdf_w / canvas_w)
         aspect = img_h_px / img_w_px
         self._canvas.set_stamp_box_size(stamp_width_canvas_px, stamp_width_canvas_px * aspect)
+        self._refresh_stamp_preview_image()
+
+    def _refresh_stamp_preview_image(self) -> None:
+        """Keep the canvas overlay showing the actual stamp (not just a
+        placeholder box): the real image file in file mode, or a freshly
+        rendered preview of the auto-generated badge in auto mode."""
+        if self._is_auto_mode():
+            name = self._signer_name_edit.text().strip()
+            if not name:
+                self._canvas.set_stamp_preview_image(None)
+                return
+            try:
+                png_bytes = backend.generate_text_stamp_image(
+                    name,
+                    datetime.now(),
+                    signed_by_label=self._t("stamp_signed_by_label"),
+                    timestamp_label=self._t("stamp_timestamp_label"),
+                )
+            except backend.PdfSignerError:
+                self._canvas.set_stamp_preview_image(None)
+                return
+            pixmap = QPixmap()
+            pixmap.loadFromData(png_bytes)
+            self._canvas.set_stamp_preview_image(pixmap if not pixmap.isNull() else None)
+        elif self._stamp_image_path and self._stamp_image_path.exists():
+            pixmap = QPixmap(str(self._stamp_image_path))
+            self._canvas.set_stamp_preview_image(pixmap if not pixmap.isNull() else None)
+        else:
+            self._canvas.set_stamp_preview_image(None)
 
     def _load_preview(self, pdf_path: Path, keep_placement: bool = False) -> None:
         try:

@@ -170,23 +170,54 @@ TEXT_STAMP_CORNER_RADIUS = 0.26
 
 _STAMP_BORDER_COLOR = (0.145, 0.388, 0.922)  # accent blue
 _STAMP_FILL_COLOR = (1, 1, 1)  # white card, so text stays legible on any page
+_STAMP_LABEL_COLOR = (0.392, 0.455, 0.545)  # muted gray
 _STAMP_NAME_COLOR = (0.118, 0.161, 0.231)  # dark slate
 _STAMP_TIME_COLOR = (0.392, 0.455, 0.545)  # muted gray
+
+DEFAULT_SIGNED_BY_LABEL = "Signed digitally by:"
+DEFAULT_TIMESTAMP_LABEL = "Timestamp:"
+
+
+def _format_timestamp_with_tz(timestamp: datetime) -> str:
+    """Format ``timestamp`` with its UTC offset. Naive datetimes (e.g. from
+    ``datetime.now()``) are assumed to be in the local timezone."""
+    aware = timestamp if timestamp.tzinfo is not None else timestamp.astimezone()
+    offset = aware.strftime("%z") or "+0000"
+    return f"{aware.strftime('%Y-%m-%d %H:%M:%S')} UTC{offset[:3]}:{offset[3:]}"
+
+
+def _insert_shrink_to_fit(
+    page: fitz.Page,
+    rect: fitz.Rect,
+    text: str,
+    fontsizes: tuple,
+    fontname: str,
+    color: tuple,
+    align: int,
+) -> None:
+    for fontsize in fontsizes:
+        overflow = page.insert_textbox(
+            rect, text, fontsize=fontsize, fontname=fontname, color=color, align=align
+        )
+        if overflow >= 0:
+            return
 
 
 def generate_text_stamp_image(
     name: str,
     timestamp: datetime,
+    signed_by_label: str = DEFAULT_SIGNED_BY_LABEL,
+    timestamp_label: str = DEFAULT_TIMESTAMP_LABEL,
     width_pt: float = TEXT_STAMP_WIDTH_PT,
     height_pt: float = TEXT_STAMP_HEIGHT_PT,
     zoom: float = TEXT_STAMP_ZOOM,
 ) -> bytes:
-    """Render a rounded-corner "signed by" badge showing the signer's name
-    and the signing time, as a PNG with a transparent background outside
-    the rounded border (so it isn't a stark white rectangle on the page).
-    The image's pixel size is always ``(width_pt, height_pt) * zoom``,
-    independent of the text, so it can stand in for a user-picked image
-    file anywhere in the pipeline."""
+    """Render a rounded-corner "signed by" badge showing a small label, the
+    signer's name and the signing time (with UTC offset), as a PNG with a
+    transparent background outside the rounded border (so it isn't a stark
+    white rectangle on the page). The image's pixel size is always
+    ``(width_pt, height_pt) * zoom``, independent of the text, so it can
+    stand in for a user-picked image file anywhere in the pipeline."""
     if not name.strip():
         raise PdfSignerError("Signer name is required to generate a stamp image.")
 
@@ -205,38 +236,42 @@ def generate_text_stamp_image(
         )
 
         inner_pad = 10
+        label_rect = fitz.Rect(
+            card_rect.x0 + inner_pad,
+            card_rect.y0 + 3,
+            card_rect.x1 - inner_pad,
+            card_rect.y0 + card_rect.height * 0.26,
+        )
         name_rect = fitz.Rect(
             card_rect.x0 + inner_pad,
-            card_rect.y0 + 8,
+            card_rect.y0 + card_rect.height * 0.26,
             card_rect.x1 - inner_pad,
-            card_rect.y0 + card_rect.height * 0.6,
+            card_rect.y0 + card_rect.height * 0.74,
         )
-        time_rect = fitz.Rect(
+        time_row_rect = fitz.Rect(
             card_rect.x0 + inner_pad,
-            card_rect.y0 + card_rect.height * 0.6,
+            card_rect.y0 + card_rect.height * 0.74,
             card_rect.x1 - inner_pad,
-            card_rect.y1 - 6,
+            card_rect.y1 - 3,
         )
 
-        for fontsize in (15, 13, 11, 9, 7):
-            overflow = page.insert_textbox(
-                name_rect,
-                name.strip(),
-                fontsize=fontsize,
-                fontname="hebo",
-                color=_STAMP_NAME_COLOR,
-                align=fitz.TEXT_ALIGN_CENTER,
-            )
-            if overflow >= 0:
-                break
-
-        page.insert_textbox(
-            time_rect,
-            timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            fontsize=10,
-            fontname="helv",
-            color=_STAMP_TIME_COLOR,
-            align=fitz.TEXT_ALIGN_CENTER,
+        _insert_shrink_to_fit(
+            page, label_rect, signed_by_label, (8, 7, 6), "helv",
+            _STAMP_LABEL_COLOR, fitz.TEXT_ALIGN_LEFT,
+        )
+        _insert_shrink_to_fit(
+            page, name_rect, name.strip(), (15, 13, 11, 9, 7), "hebo",
+            _STAMP_NAME_COLOR, fitz.TEXT_ALIGN_CENTER,
+        )
+        # "Timestamp:" and the datetime value share the same row: the label
+        # pinned to the left edge, the value centered across the full row.
+        _insert_shrink_to_fit(
+            page, time_row_rect, timestamp_label, (9, 8, 7, 6), "helv",
+            _STAMP_TIME_COLOR, fitz.TEXT_ALIGN_LEFT,
+        )
+        _insert_shrink_to_fit(
+            page, time_row_rect, _format_timestamp_with_tz(timestamp), (9, 8, 7, 6), "helv",
+            _STAMP_TIME_COLOR, fitz.TEXT_ALIGN_CENTER,
         )
 
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=True)
@@ -245,10 +280,18 @@ def generate_text_stamp_image(
         doc.close()
 
 
-def write_text_stamp_image(path: Path, name: str, timestamp: datetime) -> None:
+def write_text_stamp_image(
+    path: Path,
+    name: str,
+    timestamp: datetime,
+    signed_by_label: str = DEFAULT_SIGNED_BY_LABEL,
+    timestamp_label: str = DEFAULT_TIMESTAMP_LABEL,
+) -> None:
     """Generate a text stamp image (see :func:`generate_text_stamp_image`)
     and write it to ``path``."""
-    path.write_bytes(generate_text_stamp_image(name, timestamp))
+    path.write_bytes(
+        generate_text_stamp_image(name, timestamp, signed_by_label, timestamp_label)
+    )
 
 
 # ---------------------------------------------------------------------------
