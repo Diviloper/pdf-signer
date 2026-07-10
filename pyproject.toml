@@ -1,0 +1,16 @@
+[project]
+name = "pdf-signer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyhanko[pkcs11]>=0.35.2",
+    "pymupdf>=1.28.0",
+    "pyqt6>=6.11.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.21.0",
+]
