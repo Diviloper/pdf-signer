@@ -1,3 +1,66 @@
+# Signador de PDFs
+
+Segella PDFs en lot amb una imatge de signatura (o una insígnia amb nom +
+marca de temps generada automàticament) i signa'ls digitalment amb un
+certificat del magatzem de certificats de Windows — tot des d'una interfície
+d'escriptori senzilla.
+
+Requereix **Windows** (llegeix els certificats i les claus privades del
+magatzem de certificats de Windows via CNG/NCrypt).
+
+## Opció 1: Executa directament el .exe
+
+Sense Python, sense configuració.
+
+1. Ves a la [pàgina de Releases](https://github.com/Diviloper/pdf-signer/releases)
+   i descarrega `Diviloper-PDF-Signer.exe` de l'última versió.
+2. Fes-hi doble clic per obrir-lo — Windows pot mostrar un avís de SmartScreen
+   ("Windows ha protegit el vostre ordinador") perquè l'exe no està signat
+   amb codi; fes clic a **Més informació → Executa igualment**.
+3. A l'aplicació:
+   1. **1. Fitxers PDF / PDF Files** — fes clic a **Add PDF Files...** i tria
+      un o més PDFs per signar.
+   2. **2. Certificat / Certificate** — tria el teu certificat de signatura del
+      desplegable (obtingut del magatzem de certificats de Windows). Si té
+      un nom/NIF, aquest nom s'omple automàticament a sota.
+   3. **3. Segell / Stamp** — deixa que generi automàticament un segell a partir
+      del nom del signant, o tria el teu propi fitxer d'imatge. Fes clic a la
+      previsualització de la pàgina per triar on va el segell.
+   4. **4. Sortida / Output** — tria la carpeta de sortida (per defecte, la
+      carpeta del primer PDF que has afegit).
+   5. **5. Executar / Run** — fes clic a **Apply Stamp & Sign**. Si la clau
+      privada del certificat necessita un PIN, Windows el demanarà.
+4. En acabar, un missatge emergent et permet signar més documents, obrir els
+   fitxers signats, obrir la carpeta de sortida o tancar l'aplicació.
+
+## Opció 2: Executa des del codi font amb uv
+
+Requereix [uv](https://docs.astral.sh/uv/) i Windows.
+
+```
+git clone https://github.com/Diviloper/pdf-signer.git
+cd pdf-signer
+uv sync
+uv run main.py
+```
+
+`uv sync` crea un `.venv` i instal·la tot des de `pyproject.toml` /
+`uv.lock`; `uv run main.py` obre l'aplicació.
+
+## Compilar el .exe tu mateix
+
+```
+uv sync
+uv run python scripts/build_icon.py
+uv run pyinstaller pdf_signer.spec --noconfirm
+```
+
+El resultat és `dist/Diviloper-PDF-Signer.exe`. Això també s'executa
+automàticament a cada push a `main` via `.github/workflows/release.yml`, que
+publica l'exe compilat com una nova versió de GitHub.
+
+---
+
 # PDF Signer
 
 Batch-stamp PDFs with a signature image (or an auto-generated name + timestamp
