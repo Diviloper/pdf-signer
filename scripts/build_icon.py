@@ -1,4 +1,4 @@
-"""Rasterizes images/algorae-logo.svg into a multi-resolution
+"""Rasterizes images/diviloper-logo.svg into a multi-resolution
 images/app_icon.ico for use as the Windows executable icon.
 
 Run with: uv run python scripts/build_icon.py
@@ -14,7 +14,7 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parent.parent
-SVG_PATH = ROOT / "images" / "algorae-logo.svg"
+SVG_PATH = ROOT / "images" / "diviloper-logo.svg"
 ICO_PATH = ROOT / "images" / "app_icon.ico"
 SIZES = (16, 32, 48, 64, 128, 256)
 

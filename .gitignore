@@ -9,5 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-# Generated from images/algorae-logo.svg by scripts/build_icon.py
+# Generated from images/diviloper-logo.svg by scripts/build_icon.py
 images/app_icon.ico

@@ -14,24 +14,24 @@ from pathlib import Path
 from typing import Optional
 
 import fitz  # PyMuPDF
-from PyQt6.QtCore import Qt, QSize, QThread, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QIcon, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QComboBox,
     QListWidget,
     QListWidgetItem,
-    QProgressBar,
+    QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -46,7 +46,7 @@ import i18n
 PREVIEW_MAX_WIDTH = 700
 
 IMAGES_DIR = Path(__file__).resolve().parent / "images"
-LOGO_SVG_PATH = IMAGES_DIR / "algorae-logo.svg"
+LOGO_SVG_PATH = IMAGES_DIR / "diviloper-logo.svg"
 LOGO_PNG_PATH = IMAGES_DIR / "diviloper.png"
 DIVILOPER_URL = "https://github.com/Diviloper"
 ISSUES_URL = "https://github.com/Diviloper/pdf-signer/issues"
@@ -250,7 +250,9 @@ class MainWindow(QMainWindow):
         root.addWidget(self._build_left_panel(), stretch=0)
         root.addWidget(self._build_canvas_panel(), stretch=1)
 
-    def _add_section_title(self, layout: QVBoxLayout, key: str, first: bool = False) -> None:
+    def _add_section_title(
+        self, layout: QVBoxLayout, key: str, first: bool = False
+    ) -> None:
         if not first:
             separator = QFrame()
             separator.setFrameShape(QFrame.Shape.HLine)
@@ -376,7 +378,8 @@ class MainWindow(QMainWindow):
                 dpr = screen.devicePixelRatio() if screen else 1.0
                 target_width_pt = 220
                 scaled = logo_pixmap.scaledToWidth(
-                    int(target_width_pt * dpr), Qt.TransformationMode.SmoothTransformation
+                    int(target_width_pt * dpr),
+                    Qt.TransformationMode.SmoothTransformation,
                 )
                 scaled.setDevicePixelRatio(dpr)
                 self._logo_label.setPixmap(scaled)
@@ -500,7 +503,9 @@ class MainWindow(QMainWindow):
             remove_btn.setAutoRaise(True)
             remove_btn.setFixedSize(20, 20)
             remove_btn.setToolTip(self._t("remove_pdf_tooltip"))
-            remove_btn.clicked.connect(lambda checked=False, p=path: self._on_remove_pdf(p))
+            remove_btn.clicked.connect(
+                lambda checked=False, p=path: self._on_remove_pdf(p)
+            )
             row_layout.addWidget(remove_btn)
 
             self._pdf_list.setItemWidget(item, row)
@@ -538,15 +543,21 @@ class MainWindow(QMainWindow):
         if not file:
             return
         self._stamp_image_path = Path(file)
-        self._stamp_label.setText(self._t("stamp_selected", name=self._stamp_image_path.name))
+        self._stamp_label.setText(
+            self._t("stamp_selected", name=self._stamp_image_path.name)
+        )
         self._update_stamp_box_preview()
 
     def _on_pick_output_dir(self) -> None:
-        directory = QFileDialog.getExistingDirectory(self, self._t("file_dialog_select_output"))
+        directory = QFileDialog.getExistingDirectory(
+            self, self._t("file_dialog_select_output")
+        )
         if not directory:
             return
         self._output_dir = Path(directory)
-        self._output_dir_label.setText(self._t("output_selected", path=str(self._output_dir)))
+        self._output_dir_label.setText(
+            self._t("output_selected", path=str(self._output_dir))
+        )
 
     def _on_canvas_clicked(self, x: float, y: float) -> None:
         if self._first_page_size_pt is None:
@@ -574,7 +585,9 @@ class MainWindow(QMainWindow):
 
         stamp_image_path = self._stamp_image_path
         if self._is_auto_mode():
-            stamp_image_path = Path(tempfile.gettempdir()) / "pdf_signer_generated_stamp.png"
+            stamp_image_path = (
+                Path(tempfile.gettempdir()) / "pdf_signer_generated_stamp.png"
+            )
             backend.write_text_stamp_image(
                 stamp_image_path,
                 self._signer_name_edit.text(),
@@ -655,7 +668,9 @@ class MainWindow(QMainWindow):
         stamp_width_pt = self._stamp_width_spin.value()
         stamp_width_canvas_px = stamp_width_pt / (pdf_w / canvas_w)
         aspect = img_h_px / img_w_px
-        self._canvas.set_stamp_box_size(stamp_width_canvas_px, stamp_width_canvas_px * aspect)
+        self._canvas.set_stamp_box_size(
+            stamp_width_canvas_px, stamp_width_canvas_px * aspect
+        )
         self._refresh_stamp_preview_image()
 
     def _refresh_stamp_preview_image(self) -> None:
@@ -679,10 +694,14 @@ class MainWindow(QMainWindow):
                 return
             pixmap = QPixmap()
             pixmap.loadFromData(png_bytes)
-            self._canvas.set_stamp_preview_image(pixmap if not pixmap.isNull() else None)
+            self._canvas.set_stamp_preview_image(
+                pixmap if not pixmap.isNull() else None
+            )
         elif self._stamp_image_path and self._stamp_image_path.exists():
             pixmap = QPixmap(str(self._stamp_image_path))
-            self._canvas.set_stamp_preview_image(pixmap if not pixmap.isNull() else None)
+            self._canvas.set_stamp_preview_image(
+                pixmap if not pixmap.isNull() else None
+            )
         else:
             self._canvas.set_stamp_preview_image(None)
 
@@ -691,7 +710,9 @@ class MainWindow(QMainWindow):
             doc = fitz.open(str(pdf_path))
             page = doc[0]
         except Exception as exc:
-            QMessageBox.warning(self, self._t("could_not_open_pdf_title"), f"{pdf_path.name}: {exc}")
+            QMessageBox.warning(
+                self, self._t("could_not_open_pdf_title"), f"{pdf_path.name}: {exc}"
+            )
             return
 
         if not keep_placement:
@@ -702,12 +723,18 @@ class MainWindow(QMainWindow):
         # not just a fixed width -- otherwise a page whose aspect ratio
         # doesn't match the panel gets clipped to its center by the QLabel.
         # Fall back to a fixed guess only if the widget isn't laid out yet.
-        available_w = self._canvas.width() if self._canvas.width() > 100 else PREVIEW_MAX_WIDTH
-        available_h = self._canvas.height() if self._canvas.height() > 100 else PREVIEW_MAX_WIDTH
+        available_w = (
+            self._canvas.width() if self._canvas.width() > 100 else PREVIEW_MAX_WIDTH
+        )
+        available_h = (
+            self._canvas.height() if self._canvas.height() > 100 else PREVIEW_MAX_WIDTH
+        )
         zoom = min(available_w / page.rect.width, available_h / page.rect.height, 2.0)
         self._preview_zoom = zoom
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-        image = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+        image = QImage(
+            pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888
+        )
 
         click_pos = None
         if self._stamp_pdf_point is not None:
@@ -742,7 +769,9 @@ class MainWindow(QMainWindow):
         field with it, so the visible stamp always matches who actually
         signed. Falls back to a free-text field when nothing usable could
         be extracted from the certificate."""
-        cert = self._certificates[index] if 0 <= index < len(self._certificates) else None
+        cert = (
+            self._certificates[index] if 0 <= index < len(self._certificates) else None
+        )
         if cert and cert.owner_name:
             display = cert.owner_name
             if cert.owner_nif:
@@ -775,10 +804,18 @@ class MainWindow(QMainWindow):
         box.setWindowTitle(self._t("done_title"))
         box.setText(self._t("done_message"))
 
-        sign_more_btn = box.addButton(self._t("sign_more_btn"), QMessageBox.ButtonRole.ActionRole)
-        open_docs_btn = box.addButton(self._t("open_documents_btn"), QMessageBox.ButtonRole.ActionRole)
-        open_folder_btn = box.addButton(self._t("open_folder_btn"), QMessageBox.ButtonRole.ActionRole)
-        close_btn = box.addButton(self._t("close_app_btn"), QMessageBox.ButtonRole.DestructiveRole)
+        sign_more_btn = box.addButton(
+            self._t("sign_more_btn"), QMessageBox.ButtonRole.ActionRole
+        )
+        open_docs_btn = box.addButton(
+            self._t("open_documents_btn"), QMessageBox.ButtonRole.ActionRole
+        )
+        open_folder_btn = box.addButton(
+            self._t("open_folder_btn"), QMessageBox.ButtonRole.ActionRole
+        )
+        close_btn = box.addButton(
+            self._t("close_app_btn"), QMessageBox.ButtonRole.DestructiveRole
+        )
         box.setDefaultButton(sign_more_btn)
         box.exec()
 
