@@ -111,7 +111,9 @@ def stamp_placement_for_click(
     pdf_x = min(max(pdf_x, 0.0), max(pdf_width - stamp_width_pt, 0.0))
     pdf_y = min(max(pdf_y, 0.0), max(pdf_height - stamp_height_pt, 0.0))
 
-    return StampPlacement(x=pdf_x, y=pdf_y, width=stamp_width_pt, height=stamp_height_pt)
+    return StampPlacement(
+        x=pdf_x, y=pdf_y, width=stamp_width_pt, height=stamp_height_pt
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +170,7 @@ TEXT_STAMP_ZOOM = 4.0
 # points) -- picked to read like a ~20px CSS border-radius at this card size.
 TEXT_STAMP_CORNER_RADIUS = 0.26
 
-_STAMP_BORDER_COLOR = (0.145, 0.388, 0.922)  # accent blue
+_STAMP_BORDER_COLOR = (0.298, 0.733, 0.090)  # kelly green
 _STAMP_FILL_COLOR = (1, 1, 1)  # white card, so text stays legible on any page
 _STAMP_LABEL_COLOR = (0.392, 0.455, 0.545)  # muted gray
 _STAMP_NAME_COLOR = (0.118, 0.161, 0.231)  # dark slate
@@ -256,22 +258,42 @@ def generate_text_stamp_image(
         )
 
         _insert_shrink_to_fit(
-            page, label_rect, signed_by_label, (8, 7, 6), "helv",
-            _STAMP_LABEL_COLOR, fitz.TEXT_ALIGN_LEFT,
+            page,
+            label_rect,
+            signed_by_label,
+            (8, 7, 6),
+            "helv",
+            _STAMP_LABEL_COLOR,
+            fitz.TEXT_ALIGN_LEFT,
         )
         _insert_shrink_to_fit(
-            page, name_rect, name.strip(), (15, 13, 11, 9, 7), "hebo",
-            _STAMP_NAME_COLOR, fitz.TEXT_ALIGN_CENTER,
+            page,
+            name_rect,
+            name.strip(),
+            (15, 13, 11, 9, 7),
+            "hebo",
+            _STAMP_NAME_COLOR,
+            fitz.TEXT_ALIGN_CENTER,
         )
         # "Timestamp:" and the datetime value share the same row: the label
         # pinned to the left edge, the value centered across the full row.
         _insert_shrink_to_fit(
-            page, time_row_rect, timestamp_label, (9, 8, 7, 6), "helv",
-            _STAMP_TIME_COLOR, fitz.TEXT_ALIGN_LEFT,
+            page,
+            time_row_rect,
+            timestamp_label,
+            (9, 8, 7, 6),
+            "helv",
+            _STAMP_TIME_COLOR,
+            fitz.TEXT_ALIGN_LEFT,
         )
         _insert_shrink_to_fit(
-            page, time_row_rect, _format_timestamp_with_tz(timestamp), (9, 8, 7, 6), "helv",
-            _STAMP_TIME_COLOR, fitz.TEXT_ALIGN_CENTER,
+            page,
+            time_row_rect,
+            _format_timestamp_with_tz(timestamp),
+            (9, 8, 7, 6),
+            "helv",
+            _STAMP_TIME_COLOR,
+            fitz.TEXT_ALIGN_CENTER,
         )
 
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=True)
@@ -330,7 +352,7 @@ def _clean_nif(raw: str) -> str:
     value = raw.strip().upper()
     for prefix in _NIF_PREFIXES:
         if value.startswith(prefix):
-            return value[len(prefix):].strip()
+            return value[len(prefix) :].strip()
     return value
 
 
@@ -368,7 +390,9 @@ def extract_certificate_owner(
             nif = candidate
     if nif is None and common_name:
         match = re.search(
-            r"\b(?:DNI|NIF|NIE)[:\s]*([0-9XYZ][0-9]{7}[A-Z])\b", common_name, re.IGNORECASE
+            r"\b(?:DNI|NIF|NIE)[:\s]*([0-9XYZ][0-9]{7}[A-Z])\b",
+            common_name,
+            re.IGNORECASE,
         )
         if match:
             nif = match.group(1).upper()
@@ -392,7 +416,10 @@ if sys.platform == "win32":
     NCRYPT_PAD_PKCS1_FLAG = 0x2
 
     class CRYPT_HASH_BLOB(ctypes.Structure):
-        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
+        _fields_ = [
+            ("cbData", wintypes.DWORD),
+            ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
+        ]
 
     class CERT_CONTEXT(ctypes.Structure):
         _fields_ = [
@@ -562,7 +589,9 @@ class WindowsStoreSigner(Signer):
         try:
             # Keep the backing buffer alive as a named variable: CRYPT_HASH_BLOB
             # only stores a raw pointer, not a reference to the array itself.
-            thumb_buf = (ctypes.c_ubyte * len(cert_info.thumbprint))(*cert_info.thumbprint)
+            thumb_buf = (ctypes.c_ubyte * len(cert_info.thumbprint))(
+                *cert_info.thumbprint
+            )
             hash_blob = CRYPT_HASH_BLOB(
                 cbData=len(cert_info.thumbprint),
                 pbData=ctypes.cast(thumb_buf, ctypes.POINTER(ctypes.c_ubyte)),
@@ -576,7 +605,9 @@ class WindowsStoreSigner(Signer):
                 None,
             )
             if not cert_ctx:
-                raise PdfSignerError("Selected certificate could not be re-located in the store.")
+                raise PdfSignerError(
+                    "Selected certificate could not be re-located in the store."
+                )
             der = _cert_der_bytes(cert_ctx)
             signing_cert = cryptography_x509.load_der_x509_certificate(der)
             self._cert_ctx = cert_ctx
@@ -614,7 +645,9 @@ class WindowsStoreSigner(Signer):
             )
         return key_handle, bool(caller_must_free.value)
 
-    async def async_sign_raw(self, data: bytes, digest_algorithm: str, dry_run: bool = False) -> bytes:
+    async def async_sign_raw(
+        self, data: bytes, digest_algorithm: str, dry_run: bool = False
+    ) -> bytes:
         return self.sign_raw(data, digest_algorithm)
 
     def sign_raw(self, data: bytes, digest_algorithm: str) -> bytes:
@@ -627,7 +660,9 @@ class WindowsStoreSigner(Signer):
         key_handle, must_free = self._acquire_key_handle()
         try:
             if isinstance(self._public_key, rsa.RSAPublicKey):
-                padding_info = BCRYPT_PKCS1_PADDING_INFO(pszAlgId=digest_algorithm.upper())
+                padding_info = BCRYPT_PKCS1_PADDING_INFO(
+                    pszAlgId=digest_algorithm.upper()
+                )
                 flags = NCRYPT_PAD_PKCS1_FLAG
                 pad_ptr = ctypes.byref(padding_info)
             elif isinstance(self._public_key, ec.EllipticCurvePublicKey):
@@ -649,7 +684,9 @@ class WindowsStoreSigner(Signer):
                 flags,
             )
             if status != 0:
-                raise SigningError(f"NCryptSignHash (size query) failed: status={status:#x}")
+                raise SigningError(
+                    f"NCryptSignHash (size query) failed: status={status:#x}"
+                )
 
             sig_buf = (ctypes.c_ubyte * result_len.value)()
             status = ncrypt.NCryptSignHash(
@@ -711,7 +748,9 @@ def process_pdf(
 
     signer = WindowsStoreSigner(cert_info)
     writer = IncrementalPdfFileWriter(BytesIO(stamped_bytes))
-    meta = PdfSignatureMetadata(field_name="Signature1", reason=reason, location=location)
+    meta = PdfSignatureMetadata(
+        field_name="Signature1", reason=reason, location=location
+    )
 
     try:
         out_buffer = BytesIO()
