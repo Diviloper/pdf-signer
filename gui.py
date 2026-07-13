@@ -853,8 +853,10 @@ class MainWindow(QMainWindow):
         elif clicked is open_docs_btn:
             for path in output_paths:
                 self._open_file(path)
+            self.close()
         elif clicked is open_folder_btn:
             self._open_folder(self._output_dir)
+            self.close()
         elif clicked is close_btn:
             self.close()
 
