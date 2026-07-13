@@ -26,12 +26,21 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from cryptography.x509.oid import NameOID
 from PIL import Image as PILImage
+from pyhanko.pdf_utils import generic
+from pyhanko.pdf_utils.generic import pdf_name
 from pyhanko.pdf_utils.images import PdfImage
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
-from pyhanko.pdf_utils.layout import AxisAlignment, InnerScaling, Margins, SimpleBoxLayoutRule
-from pyhanko.sign.fields import SigFieldSpec
+from pyhanko.pdf_utils.layout import (
+    AxisAlignment,
+    BoxConstraints,
+    InnerScaling,
+    Margins,
+    SimpleBoxLayoutRule,
+)
+from pyhanko.sign.fields import prepare_sig_field
 from pyhanko.sign.general import SigningError
 from pyhanko.sign.signers import PdfSignatureMetadata, PdfSigner, Signer
+import pyhanko.sign.signers.cms_embedder as _cms_embedder
 from pyhanko.stamp import StaticStampStyle
 
 
@@ -759,6 +768,34 @@ def _placement_to_pdf_box(
     return (rect.x0, page_rect.height - rect.y1, rect.x1, page_rect.height - rect.y0)
 
 
+def _patched_get_single_field_annot(field: generic.DictionaryObject):
+    """Replaces pyHanko's ``get_single_field_annot``, which raises unless a
+    signature field has exactly one widget annotation.
+
+    We deliberately give our signature field one widget per page (so the
+    stamp shows on every page), which pyHanko's own signing step doesn't
+    support out of the box -- even though pyHanko's *validation* side
+    (``SigFieldCreationRule``) explicitly tolerates multiple widget kids on
+    a signature field ("in principle there should be only one, but we
+    don't enforce that restriction here"). The one spot that doesn't accept
+    it is this appearance-lookup helper, called during signing to render
+    the field's default visual appearance.
+
+    Our fields always carry an extra invisible placeholder kid (added by
+    ``prepare_sig_field`` with ``box=None``) precisely so this patched
+    function has a harmless target to hand back: all of the *real*,
+    visible widgets already have their appearance set beforehand, so
+    whatever pyHanko renders into this placeholder is simply never seen.
+    """
+    kids = field.get("/Kids")
+    if kids:
+        return kids[0].get_object()
+    return field
+
+
+_cms_embedder.get_single_field_annot = _patched_get_single_field_annot
+
+
 def process_pdf(
     input_path: Path,
     output_path: Path,
@@ -772,25 +809,26 @@ def process_pdf(
     final result only once it succeeds (the original file is never
     touched).
 
-    The stamp image is embedded as the visible appearance of the new
-    signature field itself, rather than drawn into the page's own content
-    stream. Editing page content directly would go undetected by no one:
-    every PDF validator (this app's own pyHanko included) treats that as
-    an unauthorized change and flags every signature already on the
-    document as broken, even though their byte ranges are technically
-    untouched. A new signature field's widget is the one kind of
-    post-signing addition that's universally recognized as safe.
+    The stamp image is embedded as the visible appearance of a widget on
+    the new signature field itself (one widget per page), rather than
+    drawn into each page's own content stream. Editing page content
+    directly would go unnoticed by no one: every PDF validator (this
+    app's own pyHanko included) treats that as an unauthorized change and
+    flags every signature already on the document as broken, even though
+    their byte ranges are technically untouched. A new signature field's
+    widgets are the one kind of post-signing addition that's universally
+    recognized as safe.
     """
     cleaned_bytes = _strip_leading_garbage(input_path.read_bytes())
 
     try:
         doc = fitz.open(stream=cleaned_bytes, filetype="pdf")
-        page_rect = doc[0].rect
+        page_rects = [doc[i].rect for i in range(doc.page_count)]
         doc.close()
     except Exception as exc:
         raise PdfSignerError(f"Could not open PDF '{input_path.name}': {exc}") from exc
 
-    box = _placement_to_pdf_box(placement, page_rect)
+    boxes = [_placement_to_pdf_box(placement, rect) for rect in page_rects]
 
     try:
         stamp_image = PILImage.open(stamp_image_path)
@@ -805,19 +843,54 @@ def process_pdf(
     meta = PdfSignatureMetadata(
         field_name="Signature1", reason=reason, location=location
     )
-    field_spec = SigFieldSpec(sig_field_name="Signature1", on_page=0, box=box)
     stamp_style = StaticStampStyle(
         background=PdfImage(stamp_image),
         border_width=0,
         background_layout=_STAMP_LAYOUT,
     )
-    pdf_signer = PdfSigner(
-        meta, signer, stamp_style=stamp_style, new_field_spec=field_spec
-    )
 
     try:
+        page_ref0 = writer.find_page_for_modification(0)[0]
+        _created, field_ref = prepare_sig_field(
+            "Signature1",
+            writer.root,
+            update_writer=writer,
+            existing_fields_only=False,
+            box=None,  # invisible placeholder kid; see _patched_get_single_field_annot
+            include_on_page=page_ref0,
+            combine_annotation=False,
+        )
+        kids = field_ref.get_object()["/Kids"]
+
+        for page_ix, box in enumerate(boxes):
+            page_ref = writer.find_page_for_modification(page_ix)[0]
+            width, height = box[2] - box[0], box[3] - box[1]
+            stamp_obj = stamp_style.create_stamp(
+                writer, BoxConstraints(width=width, height=height), {}
+            )
+            widget = generic.DictionaryObject(
+                {
+                    pdf_name("/Type"): pdf_name("/Annot"),
+                    pdf_name("/Subtype"): pdf_name("/Widget"),
+                    pdf_name("/F"): generic.NumberObject(4),  # print, not hidden
+                    pdf_name("/Rect"): generic.ArrayObject(
+                        [generic.FloatObject(v) for v in box]
+                    ),
+                    pdf_name("/P"): page_ref,
+                    pdf_name("/Parent"): field_ref,
+                    pdf_name("/AP"): generic.DictionaryObject(
+                        {pdf_name("/N"): stamp_obj.register()}
+                    ),
+                }
+            )
+            widget_ref = writer.add_object(widget)
+            kids.append(widget_ref)
+            writer.register_annotation(page_ref, widget_ref)
+        writer.update_container(kids)
+
+        pdf_signer = PdfSigner(meta, signer, stamp_style=stamp_style)
         out_buffer = BytesIO()
-        pdf_signer.sign_pdf(writer, output=out_buffer)
+        pdf_signer.sign_pdf(writer, existing_fields_only=True, output=out_buffer)
     except Exception as exc:
         raise PdfSignerError(f"Failed to sign '{input_path.name}': {exc}") from exc
 
