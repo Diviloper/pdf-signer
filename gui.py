@@ -19,6 +19,7 @@ from PyQt6.QtGui import QDesktopServices, QIcon, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -176,6 +177,8 @@ class BatchWorker(QThread):
         stamp_image_path: Path,
         placement: "backend.StampPlacement",
         cert_info: "backend.CertificateInfo",
+        suffix: str,
+        overwrite: bool,
     ):
         super().__init__()
         self._input_paths = input_paths
@@ -183,6 +186,8 @@ class BatchWorker(QThread):
         self._stamp_image_path = stamp_image_path
         self._placement = placement
         self._cert_info = cert_info
+        self._suffix = suffix
+        self._overwrite = overwrite
 
     def run(self) -> None:
         try:
@@ -192,6 +197,8 @@ class BatchWorker(QThread):
                 self._stamp_image_path,
                 self._placement,
                 self._cert_info,
+                suffix=self._suffix,
+                overwrite=self._overwrite,
                 on_progress=lambda i, total, phase, name: self.progress.emit(
                     i, total, phase, name
                 ),
@@ -220,6 +227,7 @@ class MainWindow(QMainWindow):
         self._section_labels: dict[str, QLabel] = {}
         self._generated_stamp_temp_path: Optional[Path] = None
         self._stamp_pdf_point: Optional[tuple[float, float]] = None
+        self._last_default_suffix: Optional[str] = None
 
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
@@ -343,6 +351,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._output_dir_label)
         self._output_dir: Optional[Path] = None
 
+        self._output_suffix_label = QLabel()
+        layout.addWidget(self._output_suffix_label)
+        self._suffix_edit = QLineEdit()
+        layout.addWidget(self._suffix_edit)
+
+        self._overwrite_checkbox = QCheckBox()
+        layout.addWidget(self._overwrite_checkbox)
+
         self._add_section_title(layout, "section_run")
         self._run_btn = QPushButton()
         self._run_btn.clicked.connect(self._on_run)
@@ -438,6 +454,12 @@ class MainWindow(QMainWindow):
             if self._output_dir
             else self._t("no_output_selected")
         )
+        self._output_suffix_label.setText(self._t("output_suffix_label"))
+        default_suffix = self._t("default_suffix")
+        if not self._suffix_edit.text() or self._suffix_edit.text() == self._last_default_suffix:
+            self._suffix_edit.setText(default_suffix)
+        self._last_default_suffix = default_suffix
+        self._overwrite_checkbox.setText(self._t("overwrite_checkbox"))
         self._run_btn.setText(self._t("run_btn"))
         self._status_label.setText(self._t("status_label"))
         self._canvas_hint_label.setText(self._t("canvas_hint"))
@@ -603,7 +625,13 @@ class MainWindow(QMainWindow):
         self._progress_bar.setMaximum(len(self._pdf_paths))
         self._progress_bar.setValue(0)
         self._worker = BatchWorker(
-            self._pdf_paths, self._output_dir, stamp_image_path, placement, cert_info
+            self._pdf_paths,
+            self._output_dir,
+            stamp_image_path,
+            placement,
+            cert_info,
+            self._suffix_edit.text(),
+            self._overwrite_checkbox.isChecked(),
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished_ok.connect(self._on_finished_ok)

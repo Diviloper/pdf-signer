@@ -813,12 +813,31 @@ def verify_certificate_available(cert_info: Optional[CertificateInfo]) -> None:
 ProgressCallback = Callable[[int, int, str, str], None]
 
 
+def _resolve_output_path(
+    output_dir: Path, stem: str, suffix: str, overwrite: bool
+) -> Path:
+    """Build the output path for ``stem``, appending " (1)", " (2)", ...
+    until a non-colliding name is found (unless ``overwrite`` is set, in
+    which case the plain name is always reused)."""
+    candidate = output_dir / f"{stem}{suffix}.pdf"
+    if overwrite or not candidate.exists():
+        return candidate
+    counter = 1
+    while True:
+        candidate = output_dir / f"{stem}{suffix} ({counter}).pdf"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def process_batch(
     input_paths: List[Path],
     output_dir: Path,
     stamp_image_path: Path,
     placement: StampPlacement,
     cert_info: CertificateInfo,
+    suffix: str = "_signed",
+    overwrite: bool = False,
     on_progress: Optional[ProgressCallback] = None,
 ) -> List[Path]:
     """Stamp and sign every PDF in ``input_paths``, writing results into
@@ -828,7 +847,9 @@ def process_batch(
     total = len(input_paths)
     output_paths: List[Path] = []
     for index, input_path in enumerate(input_paths, start=1):
-        output_path = output_dir / f"{input_path.stem}_signed.pdf"
+        output_path = _resolve_output_path(
+            output_dir, input_path.stem, suffix, overwrite
+        )
         if on_progress:
             on_progress(index, total, "processing", input_path.name)
         process_pdf(input_path, output_path, stamp_image_path, placement, cert_info)
