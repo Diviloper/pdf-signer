@@ -10,7 +10,9 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import re
+import shutil
 import sys
+import tempfile
 from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
@@ -128,21 +130,37 @@ def stamp_pdf(
 ) -> bytes:
     """Apply the stamp image to every page of the PDF and return the
     stamped document as an in-memory byte buffer (nothing is written to
-    disk yet, per the required stamp-then-sign execution order)."""
-    try:
-        doc = fitz.open(str(input_path))
-    except Exception as exc:
-        raise PdfSignerError(f"Could not open PDF '{input_path.name}': {exc}") from exc
+    disk yet, per the required stamp-then-sign execution order).
 
+    Saved as a true incremental update (on a scratch copy) rather than a
+    full rewrite: if ``input_path`` already carries a signature, a full
+    rewrite changes bytes across the whole file and breaks that
+    signature's digest even though its content wasn't touched. An
+    incremental save appends the new image/xref data after the existing
+    bytes, which are left untouched, so prior signatures stay intact.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
     try:
-        for page in doc:
-            rect = _clamp_rect_to_page(placement.rect(), page.rect)
-            page.insert_image(rect, filename=str(stamp_image_path))
-        return doc.tobytes()
-    except Exception as exc:
-        raise PdfSignerError(f"Failed to stamp '{input_path.name}': {exc}") from exc
+        shutil.copyfile(input_path, tmp_path)
+        try:
+            doc = fitz.open(str(tmp_path))
+        except Exception as exc:
+            raise PdfSignerError(f"Could not open PDF '{input_path.name}': {exc}") from exc
+
+        try:
+            for page in doc:
+                rect = _clamp_rect_to_page(placement.rect(), page.rect)
+                page.insert_image(rect, filename=str(stamp_image_path))
+            doc.save(str(tmp_path), incremental=1, encryption=fitz.PDF_ENCRYPT_KEEP)
+        except Exception as exc:
+            raise PdfSignerError(f"Failed to stamp '{input_path.name}': {exc}") from exc
+        finally:
+            doc.close()
+
+        return tmp_path.read_bytes()
     finally:
-        doc.close()
+        tmp_path.unlink(missing_ok=True)
 
 
 def _clamp_rect_to_page(rect: fitz.Rect, page_rect: fitz.Rect) -> fitz.Rect:
