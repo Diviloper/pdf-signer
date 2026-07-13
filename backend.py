@@ -1,8 +1,10 @@
 """Core processing backend for PDF Batch Stamper & Signer.
 
-Handles GUI/PDF coordinate translation, image stamping (PyMuPDF) and
-digital signing using a certificate pulled from the Windows certificate
-store (via CNG/NCrypt through ctypes) combined with pyHanko.
+Handles GUI/PDF coordinate translation, digital signing using a
+certificate pulled from the Windows certificate store (via CNG/NCrypt
+through ctypes) combined with pyHanko, and rendering the stamp image as
+the visible appearance of the new signature field pyHanko creates for
+that signature.
 """
 
 from __future__ import annotations
@@ -11,7 +13,6 @@ import ctypes
 import hashlib
 import re
 import sys
-import tempfile
 from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,9 +25,14 @@ from cryptography import x509 as cryptography_x509
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from cryptography.x509.oid import NameOID
+from PIL import Image as PILImage
+from pyhanko.pdf_utils.images import PdfImage
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+from pyhanko.pdf_utils.layout import AxisAlignment, InnerScaling, Margins, SimpleBoxLayoutRule
+from pyhanko.sign.fields import SigFieldSpec
 from pyhanko.sign.general import SigningError
-from pyhanko.sign.signers import PdfSignatureMetadata, Signer, sign_pdf
+from pyhanko.sign.signers import PdfSignatureMetadata, PdfSigner, Signer
+from pyhanko.stamp import StaticStampStyle
 
 
 class PdfSignerError(Exception):
@@ -138,46 +144,6 @@ def _strip_leading_garbage(data: bytes) -> bytes:
     if idx < 0:
         raise PdfSignerError("Not a valid PDF file (missing %PDF header).")
     return data[idx:] if idx > 0 else data
-
-
-def stamp_pdf(
-    input_path: Path,
-    stamp_image_path: Path,
-    placement: StampPlacement,
-) -> bytes:
-    """Apply the stamp image to every page of the PDF and return the
-    stamped document as an in-memory byte buffer (nothing is written to
-    disk yet, per the required stamp-then-sign execution order).
-
-    Saved as a true incremental update (on a scratch copy) rather than a
-    full rewrite: if ``input_path`` already carries a signature, a full
-    rewrite changes bytes across the whole file and breaks that
-    signature's digest even though its content wasn't touched. An
-    incremental save appends the new image/xref data after the existing
-    bytes, which are left untouched, so prior signatures stay intact.
-    """
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-    try:
-        tmp_path.write_bytes(_strip_leading_garbage(input_path.read_bytes()))
-        try:
-            doc = fitz.open(str(tmp_path))
-        except Exception as exc:
-            raise PdfSignerError(f"Could not open PDF '{input_path.name}': {exc}") from exc
-
-        try:
-            for page in doc:
-                rect = _clamp_rect_to_page(placement.rect(), page.rect)
-                page.insert_image(rect, filename=str(stamp_image_path))
-            doc.save(str(tmp_path), incremental=1, encryption=fitz.PDF_ENCRYPT_KEEP)
-        except Exception as exc:
-            raise PdfSignerError(f"Failed to stamp '{input_path.name}': {exc}") from exc
-        finally:
-            doc.close()
-
-        return tmp_path.read_bytes()
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
 
 def _clamp_rect_to_page(rect: fitz.Rect, page_rect: fitz.Rect) -> fitz.Rect:
@@ -764,8 +730,33 @@ def _der_encoding():
 
 
 # ---------------------------------------------------------------------------
-# Full pipeline: stamp -> sign -> save
+# Full pipeline: stamp + sign in a single incremental update
 # ---------------------------------------------------------------------------
+
+# Zero margins + stretch-to-fit so the stamp fills the placed box exactly,
+# matching what the user saw in the placement preview (StaticStampStyle's
+# own default adds a 5pt margin and shrink-to-fit, which would leave an
+# unwanted gap around an already aspect-matched box).
+_STAMP_LAYOUT = SimpleBoxLayoutRule(
+    x_align=AxisAlignment.ALIGN_MID,
+    y_align=AxisAlignment.ALIGN_MID,
+    margins=Margins(0, 0, 0, 0),
+    inner_content_scaling=InnerScaling.STRETCH_TO_FIT,
+)
+
+
+def _placement_to_pdf_box(
+    placement: StampPlacement, page_rect: fitz.Rect
+) -> tuple[float, float, float, float]:
+    """Convert a placement given in fitz's top-left-origin page space into
+    the bottom-left-origin box a PDF signature field's /Rect expects.
+
+    Note: this assumes an unrotated page (``/Rotate 0``), which covers
+    every document seen so far. A rotated page's raw box doesn't simply
+    match the visual one, and isn't handled here.
+    """
+    rect = _clamp_rect_to_page(placement.rect(), page_rect)
+    return (rect.x0, page_rect.height - rect.y1, rect.x1, page_rect.height - rect.y0)
 
 
 def process_pdf(
@@ -777,19 +768,56 @@ def process_pdf(
     reason: Optional[str] = None,
     location: Optional[str] = None,
 ) -> None:
-    """Stamp then sign a single PDF, writing the final result only once
-    both steps succeed (the original file is never touched)."""
-    stamped_bytes = stamp_pdf(input_path, stamp_image_path, placement)
+    """Stamp and sign a single PDF in one incremental update, writing the
+    final result only once it succeeds (the original file is never
+    touched).
+
+    The stamp image is embedded as the visible appearance of the new
+    signature field itself, rather than drawn into the page's own content
+    stream. Editing page content directly would go undetected by no one:
+    every PDF validator (this app's own pyHanko included) treats that as
+    an unauthorized change and flags every signature already on the
+    document as broken, even though their byte ranges are technically
+    untouched. A new signature field's widget is the one kind of
+    post-signing addition that's universally recognized as safe.
+    """
+    cleaned_bytes = _strip_leading_garbage(input_path.read_bytes())
+
+    try:
+        doc = fitz.open(stream=cleaned_bytes, filetype="pdf")
+        page_rect = doc[0].rect
+        doc.close()
+    except Exception as exc:
+        raise PdfSignerError(f"Could not open PDF '{input_path.name}': {exc}") from exc
+
+    box = _placement_to_pdf_box(placement, page_rect)
+
+    try:
+        stamp_image = PILImage.open(stamp_image_path)
+        stamp_image.load()
+    except Exception as exc:
+        raise PdfSignerError(
+            f"Could not load stamp image '{stamp_image_path.name}': {exc}"
+        ) from exc
 
     signer = WindowsStoreSigner(cert_info)
-    writer = IncrementalPdfFileWriter(BytesIO(stamped_bytes))
+    writer = IncrementalPdfFileWriter(BytesIO(cleaned_bytes))
     meta = PdfSignatureMetadata(
         field_name="Signature1", reason=reason, location=location
+    )
+    field_spec = SigFieldSpec(sig_field_name="Signature1", on_page=0, box=box)
+    stamp_style = StaticStampStyle(
+        background=PdfImage(stamp_image),
+        border_width=0,
+        background_layout=_STAMP_LAYOUT,
+    )
+    pdf_signer = PdfSigner(
+        meta, signer, stamp_style=stamp_style, new_field_spec=field_spec
     )
 
     try:
         out_buffer = BytesIO()
-        sign_pdf(writer, meta, signer=signer, output=out_buffer)
+        pdf_signer.sign_pdf(writer, output=out_buffer)
     except Exception as exc:
         raise PdfSignerError(f"Failed to sign '{input_path.name}': {exc}") from exc
 
