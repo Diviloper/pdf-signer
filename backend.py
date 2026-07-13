@@ -10,7 +10,6 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import re
-import shutil
 import sys
 import tempfile
 from ctypes import wintypes
@@ -122,6 +121,24 @@ def stamp_placement_for_click(
 # Stamping
 # ---------------------------------------------------------------------------
 
+_PDF_HEADER_MARKER = b"%PDF-"
+_PDF_HEADER_SEARCH_WINDOW = 1024  # per spec, header must appear in the first 1024 bytes
+
+
+def _strip_leading_garbage(data: bytes) -> bytes:
+    """Drop any bytes before the ``%PDF-`` marker.
+
+    Some download proxies prepend raw HTTP response headers to the saved
+    file. Byte offsets in the PDF's cross-reference table are counted
+    from the start of the file, so that extra prefix shifts every offset
+    and corrupts the file for strict parsers (pyHanko) even though
+    lenient ones (PyMuPDF) silently tolerate it.
+    """
+    idx = data.find(_PDF_HEADER_MARKER, 0, _PDF_HEADER_SEARCH_WINDOW)
+    if idx < 0:
+        raise PdfSignerError("Not a valid PDF file (missing %PDF header).")
+    return data[idx:] if idx > 0 else data
+
 
 def stamp_pdf(
     input_path: Path,
@@ -142,7 +159,7 @@ def stamp_pdf(
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
         tmp_path = Path(tmp.name)
     try:
-        shutil.copyfile(input_path, tmp_path)
+        tmp_path.write_bytes(_strip_leading_garbage(input_path.read_bytes()))
         try:
             doc = fitz.open(str(tmp_path))
         except Exception as exc:
