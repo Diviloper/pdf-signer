@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import random
 import re
 import sys
+import uuid
 from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
@@ -840,8 +842,10 @@ def process_pdf(
 
     signer = WindowsStoreSigner(cert_info)
     writer = IncrementalPdfFileWriter(BytesIO(cleaned_bytes))
+    random_node = random.getrandbits(48) | 0x010000000000  # multicast bit set: not a real MAC
+    field_name = f"Signature-{uuid.uuid1(node=random_node).hex}"
     meta = PdfSignatureMetadata(
-        field_name="Signature1", reason=reason, location=location
+        field_name=field_name, reason=reason, location=location
     )
     stamp_style = StaticStampStyle(
         background=PdfImage(stamp_image),
@@ -852,7 +856,7 @@ def process_pdf(
     try:
         page_ref0 = writer.find_page_for_modification(0)[0]
         _created, field_ref = prepare_sig_field(
-            "Signature1",
+            field_name,
             writer.root,
             update_writer=writer,
             existing_fields_only=False,
